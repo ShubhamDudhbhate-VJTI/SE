@@ -24,8 +24,13 @@ export default function AppNavbar() {
   const visibleLinks = links.filter((link) => !link.roles || link.roles.includes(user.role));
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/');
+    // Navigate to landing first to prevent ProtectedRoute from redirecting to /login
+    navigate('/', { replace: true });
+    try {
+      await logout();
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
   };
 
   return (

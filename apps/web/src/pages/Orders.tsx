@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useOrders } from '../hooks/useOrders';
 import { useNavigate } from 'react-router-dom';
@@ -6,6 +6,8 @@ import { OrderStatus, PaymentMethod, OrderWithItems } from '@/contracts';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { Clock, CreditCard, IndianRupee, Smartphone, ShieldCheck, CheckCircle2, Trash2, History as HistoryIcon, Printer, X, AlertTriangle, Star } from 'lucide-react';
+import { socket } from '../lib/socket';
+import { SocketEvents } from '@/contracts';
 import { Skeleton } from '../components/ui/skeleton';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -44,6 +46,8 @@ export default function OrdersPage() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [orderToCancel, setOrderToCancel] = useState<string | null>(null);
+  const [showCannotCancel, setShowCannotCancel] = useState(false);
+  const [kitchenCancelledOrder, setKitchenCancelledOrder] = useState<{ id: string } | null>(null);
   const [dismissedOrderIds, setDismissedOrderIds] = useState<string[]>(() => {
     const saved = localStorage.getItem('dismissedOrderIds');
     return saved ? JSON.parse(saved) : [];
@@ -53,8 +57,35 @@ export default function OrdersPage() {
 
   const { orders, isLoadingOrders, ordersError, bill, cancelOrder, pay, isPaying, history, isLoadingHistory, submitFeedback, requestBill } = useOrders();
 
+  useEffect(() => {
+    const handleStatusChange = (data: { orderId: string, status: OrderStatus, actorRole?: string }) => {
+      if (data.status === OrderStatus.CANCELLED && data.actorRole && data.actorRole !== 'customer') {
+        // If the kitchen or staff cancelled the order
+        setKitchenCancelledOrder({ id: data.orderId });
+      }
+    };
+
+    socket.on(SocketEvents.ORDER_STATUS_CHANGED, handleStatusChange);
+    return () => {
+      socket.off(SocketEvents.ORDER_STATUS_CHANGED, handleStatusChange);
+    };
+  }, []);
+
   const activeOrders = orders?.filter(o => !dismissedOrderIds.includes(o.id)) || [];
   const completedOrders = history?.filter(o => !dismissedOrderIds.includes(o.id)) || [];
+
+  const hasUnservedOrders = activeOrders.some(o => o.status !== OrderStatus.SERVED && o.status !== OrderStatus.CANCELLED);
+
+  // Handle cancellation errors (e.g. if kitchen starts preparing while user clicks cancel)
+  useEffect(() => {
+    if (cancelOrder.isError) {
+      const err = cancelOrder.error as any;
+      if (err?.response?.status === 409) {
+        setShowCannotCancel(true);
+      }
+      cancelOrder.reset();
+    }
+  }, [cancelOrder.isError, cancelOrder.reset]);
 
   const statusSteps = [
     OrderStatus.PLACED,
@@ -101,8 +132,12 @@ export default function OrdersPage() {
       setIsPayModalOpen(false);
       setDismissedOrderIds([]);
       localStorage.removeItem('dismissedOrderIds');
-    } catch (err) {
-      setPaymentError('Payment failed. Please try again or pay at the counter.');
+    } catch (err: any) {
+      if (err.response?.status === 409) {
+        setPaymentError('Some orders are still being confirmed by the kitchen. Please wait for the kitchen to start preparing before paying.');
+      } else {
+        setPaymentError('Payment failed. Please try again or pay at the counter.');
+      }
     }
   };
 
@@ -248,32 +283,56 @@ export default function OrdersPage() {
                       )}
                     </div>
                   </div>
-                  <div className="mb-6 grid grid-cols-4 gap-1">
-                    {statusSteps.map((step, index) => {
-                      const currentIndex = statusSteps.indexOf(order.status);
-                      const active = index <= currentIndex;
-                      return <div key={step} className="space-y-1"><div className={`h-1 rounded-full ${active ? 'bg-emerald-500' : 'bg-[#eadfd2]'}`} /><span className={`block text-[9px] ${active ? 'text-emerald-700' : 'text-[#756b63]'}`}>{step}</span></div>;
-                    })}
+                  <div className="mb-6">
+                    {order.status === OrderStatus.CANCELLED ? (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-100 rounded-xl text-red-700">
+                        <X className="w-4 h-4" />
+                        <span className="text-[10px] font-black uppercase tracking-widest">Cancelled</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-1">
+                        {statusSteps.map((step, index) => {
+                          const currentIndex = statusSteps.indexOf(order.status);
+                          const active = index <= currentIndex;
+                          return (
+                            <div key={step} className="space-y-1">
+                              <div className={`h-1 rounded-full ${active ? 'bg-emerald-500' : 'bg-[#eadfd2]'}`} />
+                              <span className={`block text-[9px] ${active ? 'text-emerald-700' : 'text-[#756b63]'}`}>{step}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                   
                   <ul className="space-y-3">
                     {order.items.map(item => (
                       <li key={item.id} className="flex justify-between text-sm">
-                        <span className="text-[#28231f]"><span className="text-[#756b63] mr-2">{item.quantity}x</span> {item.name}</span>
-                        <span className="text-[#356b4f] font-medium">₹{((item.priceCents * item.quantity) / 100).toFixed(2)}</span>
+                        <span className={cn("text-[#28231f]", order.status === OrderStatus.CANCELLED && "text-[#756b63] line-through decoration-red-300")}>
+                          <span className="text-[#756b63] mr-2">{item.quantity}x</span> {item.name}
+                        </span>
+                        <span className={cn("text-[#356b4f] font-medium", order.status === OrderStatus.CANCELLED && "text-[#756b63] line-through")}>
+                          ₹{((item.priceCents * item.quantity) / 100).toFixed(2)}
+                        </span>
                       </li>
                     ))}
                   </ul>
                 </div>
 
-                {order.status === OrderStatus.PLACED && (
+                {order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.SERVED && order.status !== OrderStatus.READY && (
                   <div className="mt-8 pt-4 border-t border-[#f3eadf] flex justify-end">
                     <button 
-                      onClick={() => setOrderToCancel(order.id)}
+                      onClick={() => {
+                        if (order.status === OrderStatus.PLACED) {
+                          setOrderToCancel(order.id);
+                        } else {
+                          setShowCannotCancel(true);
+                        }
+                      }}
                       disabled={cancelOrder.isPending}
                       className="text-xs font-semibold text-red-600 uppercase tracking-widest hover:text-red-500 transition-colors disabled:opacity-50"
                     >
-                      Cancel Order
+                      {cancelOrder.isPending && orderToCancel === order.id ? 'Cancelling...' : 'Cancel Order'}
                     </button>
                   </div>
                 )}
@@ -358,7 +417,6 @@ export default function OrdersPage() {
     );
   };
 
-
   return (
     <div className="min-h-screen bg-[#f3eadf] text-[#28231f] font-sans pb-32">
       <div className="mx-auto max-w-4xl px-4 pt-10 sm:px-6 lg:px-8">
@@ -417,7 +475,7 @@ export default function OrdersPage() {
                   </div>
                   <div className="flex justify-between items-center pt-4 border-t border-zinc-100">
                     <span className="text-lg font-bold">Total Amount</span>
-                    <span className="text-2xl font-bold text-[#356b4f]">₹{(bill.totalCents / 100).toFixed(2)}</span>
+                    <span className="text-2xl font-bold text-[#356b4f]">₹{((bill?.totalCents ?? 0) / 100).toFixed(2)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -425,13 +483,20 @@ export default function OrdersPage() {
               <div className="space-y-4">
                 <Button
                   onClick={() => setIsPayModalOpen(true)}
-                  className="w-full h-16 rounded-2xl bg-[#356b4f] hover:bg-[#2d5a42] text-white font-bold text-lg shadow-lg shadow-emerald-900/10"
+                  disabled={hasUnservedOrders}
+                  className="w-full h-16 rounded-2xl bg-[#356b4f] hover:bg-[#2d5a42] text-white font-bold text-lg shadow-lg shadow-emerald-900/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Checkout & Pay
+                  {hasUnservedOrders ? 'Awaiting Service Completion' : 'Checkout & Pay'}
                 </Button>
-                <div className="flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#9b8e83]">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Professional Secure Payment
-                </div>
+                {hasUnservedOrders ? (
+                   <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest text-center animate-pulse">
+                     ✋ All items must be served before you can pay
+                   </p>
+                ) : (
+                  <div className="flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#9b8e83]">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Professional Secure Payment
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -643,6 +708,31 @@ export default function OrdersPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Cannot Cancel Dialog (Preparing) */}
+      <AlertDialog open={showCannotCancel} onOpenChange={setShowCannotCancel}>
+        <AlertDialogContent className="bg-[#fffaf3] border-[#d9cbbd] rounded-[2rem]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[#28231f] flex items-center gap-2">
+              <Clock className="w-5 h-5 text-[#356b4f]" />
+              Preparation in Progress
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[#756b63] leading-relaxed">
+              We're sorry, but our chefs have already begun preparing your meal with care.
+              <br/><br/>
+              Because the preparation is already underway, we are unable to cancel this order at this stage. We appreciate your understanding and hope you enjoy your delicious food!
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => setShowCannotCancel(false)}
+              className="rounded-xl bg-[#356b4f] hover:bg-[#2d5a42] text-white px-8"
+            >
+              Understood
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Payment Error Dialog */}
       <AlertDialog open={!!paymentError} onOpenChange={(open) => !open && setPaymentError(null)}>
         <AlertDialogContent className="bg-[#fffaf3] border-[#d9cbbd] rounded-[2rem]">
@@ -661,6 +751,31 @@ export default function OrdersPage() {
               className="rounded-xl bg-[#356b4f] hover:bg-[#2d5a42] text-white"
             >
               Understood
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Kitchen Cancellation Notification */}
+      <AlertDialog open={!!kitchenCancelledOrder} onOpenChange={(open) => !open && setKitchenCancelledOrder(null)}>
+        <AlertDialogContent className="bg-[#fffaf3] border-[#d9cbbd] rounded-[2rem]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-[#28231f] flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Order Update
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[#756b63] leading-relaxed">
+              We're very sorry, but one of your orders (ID: #{kitchenCancelledOrder?.id.slice(0, 8)}) could not be fulfilled by our kitchen at this time and has been cancelled.
+              <br/><br/>
+              Your bill has been automatically adjusted. Please feel free to select another item from the menu or call our staff for assistance. We apologize for any inconvenience.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => setKitchenCancelledOrder(null)}
+              className="rounded-xl bg-[#356b4f] hover:bg-[#2d5a42] text-white px-8"
+            >
+              Close
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

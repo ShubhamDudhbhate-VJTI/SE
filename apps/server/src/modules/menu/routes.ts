@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { authenticate, requireRole } from '../../middleware/auth';
-import { Role, SocketEvents } from '@/contracts';
-import { menuRepository } from './repository';
+import { Role, CreateCategorySchema, UpdateCategorySchema, CreateMenuItemSchema, UpdateMenuItemSchema } from '@/contracts';
 import { menuService } from './service';
-import { CreateCategorySchema, UpdateCategorySchema, CreateMenuItemSchema, UpdateMenuItemSchema } from '@/contracts';
 import { z } from 'zod';
+import { validate } from '../../middleware/validate';
 
 export const menuRouter = Router();
 
@@ -19,22 +18,20 @@ menuRouter.get('/', async (req, res, next) => {
 });
 
 // Admin: Manage Categories
-menuRouter.post('/categories', authenticate, requireRole([Role.ADMIN]), async (req, res, next) => {
+menuRouter.post('/categories', authenticate, requireRole([Role.ADMIN]), validate(CreateCategorySchema), async (req, res, next) => {
   try {
-    const data = CreateCategorySchema.parse(req.body);
-    const category = await menuRepository.createCategory(data);
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const io = req.app.get('io');
+    const category = await menuService.createCategory(req.body, io);
     res.status(201).json({ category });
   } catch (err) {
     next(err);
   }
 });
 
-menuRouter.put('/categories/:id', authenticate, requireRole([Role.ADMIN]), async (req, res, next) => {
+menuRouter.put('/categories/:id', authenticate, requireRole([Role.ADMIN]), validate(UpdateCategorySchema), async (req, res, next) => {
   try {
-    const data = UpdateCategorySchema.parse(req.body);
-    const category = await menuRepository.updateCategory(req.params.id as string, data);
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const io = req.app.get('io');
+    const category = await menuService.updateCategory(req.params.id as string, req.body, io);
     res.json({ category });
   } catch (err) {
     next(err);
@@ -43,10 +40,8 @@ menuRouter.put('/categories/:id', authenticate, requireRole([Role.ADMIN]), async
 
 menuRouter.delete('/categories/:id', authenticate, requireRole([Role.ADMIN]), async (req, res, next) => {
   try {
-    // Delete items in category first? (For sqlite foreign key with cascade, this would happen automatically if configured, otherwise we should manually delete them)
-    // Actually wait, let's keep it simple, assume client handles it or repository throws if not empty.
-    await menuRepository.deleteCategory(req.params.id as string);
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const io = req.app.get('io');
+    await menuService.deleteCategory(req.params.id as string, io);
     res.json({ success: true });
   } catch (err) {
     next(err);
@@ -54,22 +49,20 @@ menuRouter.delete('/categories/:id', authenticate, requireRole([Role.ADMIN]), as
 });
 
 // Admin: Manage Menu Items
-menuRouter.post('/items', authenticate, requireRole([Role.ADMIN]), async (req, res, next) => {
+menuRouter.post('/items', authenticate, requireRole([Role.ADMIN]), validate(CreateMenuItemSchema), async (req, res, next) => {
   try {
-    const data = CreateMenuItemSchema.parse(req.body);
-    const item = await menuRepository.createMenuItem(data);
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const io = req.app.get('io');
+    const item = await menuService.createMenuItem(req.body, io);
     res.status(201).json({ item });
   } catch (err) {
     next(err);
   }
 });
 
-menuRouter.put('/items/:id', authenticate, requireRole([Role.ADMIN]), async (req, res, next) => {
+menuRouter.put('/items/:id', authenticate, requireRole([Role.ADMIN]), validate(UpdateMenuItemSchema), async (req, res, next) => {
   try {
-    const data = UpdateMenuItemSchema.parse(req.body);
-    const item = await menuRepository.updateMenuItem(req.params.id as string, data);
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const io = req.app.get('io');
+    const item = await menuService.updateMenuItem(req.params.id as string, req.body, io);
     res.json({ item });
   } catch (err) {
     next(err);
@@ -78,9 +71,9 @@ menuRouter.put('/items/:id', authenticate, requireRole([Role.ADMIN]), async (req
 
 menuRouter.patch('/items/:id/availability', authenticate, requireRole([Role.ADMIN, Role.KITCHEN]), async (req, res, next) => {
   try {
+    const io = req.app.get('io');
     const { isAvailable } = z.object({ isAvailable: z.boolean() }).parse(req.body);
-    const item = await menuRepository.updateMenuItem(req.params.id as string, { isAvailable });
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const item = await menuService.updateMenuItem(req.params.id as string, { isAvailable }, io);
     res.json({ item });
   } catch (err) {
     next(err);
@@ -89,8 +82,8 @@ menuRouter.patch('/items/:id/availability', authenticate, requireRole([Role.ADMI
 
 menuRouter.delete('/items/:id', authenticate, requireRole([Role.ADMIN]), async (req, res, next) => {
   try {
-    await menuRepository.deleteMenuItem(req.params.id as string);
-    req.app.get('io')?.emit(SocketEvents.MENU_UPDATED);
+    const io = req.app.get('io');
+    await menuService.deleteMenuItem(req.params.id as string, io);
     res.json({ success: true });
   } catch (err) {
     next(err);

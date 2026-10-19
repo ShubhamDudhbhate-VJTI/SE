@@ -25,7 +25,10 @@ sessionsRouter.get('/me', requireRole([Role.CUSTOMER]), async (req: Request, res
 // POST /sessions/:id/cancel
 sessionsRouter.post('/:id/cancel', requireRole([Role.CUSTOMER]), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const updatedSession = await sessionService.cancelSession(req.user!.userId, req.params.id as string);
+    const { id } = req.params;
+    if (typeof id !== 'string') throw new AppError('BAD_REQUEST', 400, 'Invalid ID');
+
+    const updatedSession = await sessionService.cancelSession(req.user!.userId, id);
     req.app.get('io')?.emit(SocketEvents.SESSION_UPDATED, { sessionId: updatedSession.id, status: SessionStatus.CLOSED });
     res.json({ session: updatedSession });
   } catch (err) {
@@ -109,10 +112,13 @@ sessionsRouter.post('/', requireRole([Role.WAITER, Role.CASHIER, Role.ADMIN]), a
 // POST /sessions/:id/pay
 sessionsRouter.post('/:id/pay', requireRole([Role.CASHIER, Role.ADMIN]), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { id } = req.params;
+    if (typeof id !== 'string') throw new AppError('BAD_REQUEST', 400, 'Invalid ID');
+
     const data = PaySessionSchema.parse(req.body);
     const updatedSession = await sessionService.closeSession(
       req.user!.userId,
-      req.params.id as string,
+      id,
       SessionCloseReason.PAID,
       data.method,
       data.discountPercent
@@ -133,9 +139,12 @@ sessionsRouter.post('/:id/pay', requireRole([Role.CASHIER, Role.ADMIN]), async (
 // POST /sessions/:id/force-close
 sessionsRouter.post('/:id/force-close', requireRole([Role.CASHIER, Role.ADMIN]), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { id } = req.params;
+    if (typeof id !== 'string') throw new AppError('BAD_REQUEST', 400, 'Invalid ID');
+
     const updatedSession = await sessionService.closeSession(
       req.user!.userId,
-      req.params.id as string,
+      id,
       SessionCloseReason.FORCE_CLOSED
     );
 

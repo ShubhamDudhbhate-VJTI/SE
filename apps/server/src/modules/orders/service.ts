@@ -25,7 +25,10 @@ export class OrderService {
       throw new AppError('FORBIDDEN', 403, 'Insufficient permissions');
     }
 
-    const updated = await orderRepository.cancelOrder(order.id);
+    const updated = await orderRepository.updateOrderStatus(order.id, OrderStatus.CANCELLED);
+    if (!updated) {
+      throw new AppError('INTERNAL_SERVER_ERROR', 500, 'Failed to cancel order');
+    }
     await recordAudit({ actorUserId: userId, action: 'ORDER_CANCELLED', entityType: 'ORDER', entityId: order.id });
     return updated;
   }
@@ -50,6 +53,9 @@ export class OrderService {
     }
 
     const updated = await orderRepository.updateOrderStatus(order.id, newStatus);
+    if (!updated) {
+      throw new AppError('INTERNAL_SERVER_ERROR', 500, 'Failed to update order status');
+    }
     await recordAudit({
       actorUserId: userId,
       action: 'ORDER_STATUS_CHANGED',

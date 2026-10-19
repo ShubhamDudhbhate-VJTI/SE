@@ -52,7 +52,8 @@ export const SocketEvents = {
   SESSION_UPDATED: 'session:updated',
   ORDER_CREATED: 'order:created',
   ORDER_STATUS_CHANGED: 'order:status_changed',
-  MENU_UPDATED: 'menu:updated'
+  MENU_UPDATED: 'menu:updated',
+  INVENTORY_UPDATED: 'inventory:updated'
 } as const;
 
 import { z } from 'zod';
@@ -109,9 +110,9 @@ export const SessionSchema = z.object({
   subtotalCents: z.number().int().nullable().optional(),
   cgstCents: z.number().int().nullable().optional(),
   sgstCents: z.number().int().nullable().optional(),
-  totalCents: z.number().int().nullable().optional()
-  ,discountCents: z.number().int().nullable().optional()
-  ,discountPercent: z.number().nullable().optional()
+  totalCents: z.number().int().nullable().optional(),
+  discountCents: z.number().int().nullable().optional(),
+  discountPercent: z.number().nullable().optional()
 });
 export type Session = z.infer<typeof SessionSchema>;
 
@@ -196,6 +197,9 @@ export const UpdateOrderStatusSchema = z.object({
 export type UpdateOrderStatusInput = z.infer<typeof UpdateOrderStatusSchema>;
 
 export function canTransitionOrderStatus(current: OrderStatus, next: OrderStatus): boolean {
+  if (next === OrderStatus.CANCELLED) {
+    return current === OrderStatus.PLACED || current === OrderStatus.PREPARING;
+  }
   if (current === OrderStatus.PLACED && next === OrderStatus.PREPARING) return true;
   if (current === OrderStatus.PREPARING && next === OrderStatus.READY) return true;
   if (current === OrderStatus.READY && next === OrderStatus.SERVED) return true;
@@ -228,3 +232,25 @@ export const CreateFeedbackSchema = z.object({
   comment: z.string().max(1000).optional()
 });
 export type CreateFeedbackInput = z.infer<typeof CreateFeedbackSchema>;
+
+export const InventorySchema = z.object({
+  id: z.string(),
+  name: z.string().min(1, "Name is required"),
+  quantity: z.number(),
+  unit: z.string().min(1, "Unit is required"),
+  minStockLevel: z.number(),
+  updatedAt: z.number()
+});
+export type Inventory = z.infer<typeof InventorySchema>;
+
+export const CreateInventorySchema = InventorySchema.omit({ id: true, updatedAt: true });
+export type CreateInventoryInput = z.infer<typeof CreateInventorySchema>;
+
+export const UpdateInventorySchema = CreateInventorySchema.partial();
+export type UpdateInventoryInput = z.infer<typeof UpdateInventorySchema>;
+
+export const AdjustInventorySchema = z.object({
+  adjustment: z.number(),
+  notes: z.string().optional()
+});
+export type AdjustInventoryInput = z.infer<typeof AdjustInventorySchema>;

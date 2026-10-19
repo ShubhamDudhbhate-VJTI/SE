@@ -52,7 +52,8 @@ export const SocketEvents = {
   SESSION_UPDATED: 'session:updated',
   ORDER_CREATED: 'order:created',
   ORDER_STATUS_CHANGED: 'order:status_changed',
-  MENU_UPDATED: 'menu:updated'
+  MENU_UPDATED: 'menu:updated',
+  INVENTORY_UPDATED: 'inventory:updated'
 } as const;
 
 import { z } from 'zod';
@@ -232,3 +233,25 @@ export const CreateFeedbackSchema = z.object({
   comment: z.string().max(1000).optional()
 });
 export type CreateFeedbackInput = z.infer<typeof CreateFeedbackSchema>;
+
+export const InventorySchema = z.object({
+  id: z.string(),
+  name: z.string().min(1, "Name is required"),
+  quantity: z.number(),
+  unit: z.string().min(1, "Unit is required"),
+  minStockLevel: z.number(),
+  updatedAt: z.number()
+});
+export type Inventory = z.infer<typeof InventorySchema>;
+
+export const CreateInventorySchema = InventorySchema.omit({ id: true, updatedAt: true });
+export type CreateInventoryInput = z.infer<typeof CreateInventorySchema>;
+
+export const UpdateInventorySchema = CreateInventorySchema.partial();
+export type UpdateInventoryInput = z.infer<typeof UpdateInventorySchema>;
+
+export const AdjustInventorySchema = z.object({
+  adjustment: z.number(),
+  notes: z.string().optional()
+});
+export type AdjustInventoryInput = z.infer<typeof AdjustInventorySchema>;

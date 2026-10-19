@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/auth';
+import { useEffect } from 'react';
+import { socket } from '../lib/socket';
 
 export const useAuth = () => {
   const queryClient = useQueryClient();
@@ -10,6 +12,16 @@ export const useAuth = () => {
     retry: false, // Don't retry if unauthenticated
     staleTime: 5 * 60 * 1000,
   });
+
+  useEffect(() => {
+    if (data?.user) {
+      if (!socket.connected) {
+        socket.connect();
+      }
+    } else if (!isLoading) {
+      socket.disconnect();
+    }
+  }, [data?.user, isLoading]);
 
   const loginMutation = useMutation({
     mutationFn: authApi.login,
@@ -31,6 +43,8 @@ export const useAuth = () => {
     mutationFn: authApi.logout,
     onSuccess: () => {
       queryClient.setQueryData(['me'], null);
+      queryClient.clear(); // Clear all cache to prevent data leakage between sessions
+      socket.disconnect();
     },
   });
 

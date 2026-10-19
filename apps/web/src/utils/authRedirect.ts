@@ -1,11 +1,6 @@
 import { Role } from '@/contracts';
 
-export function getDefaultRedirectPath(role: Role, searchParams: URLSearchParams): string {
-  const next = searchParams.get('next');
-  if (next && next.startsWith('/')) {
-    return next;
-  }
-  
+export function getDefaultRedirectPath(role: Role): string {
   const defaultRoute: Record<Role, string> = {
     [Role.ADMIN]: '/admin',
     [Role.KITCHEN]: '/kitchen',

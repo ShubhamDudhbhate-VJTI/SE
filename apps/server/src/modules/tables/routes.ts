@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import { validate } from '../../middleware/validate';
 import { authenticate, requireRole } from '../../middleware/auth';
-import { AppError } from '../../middleware/error';
-import { CreateTableSchema, UpdateTableSchema, Role, SocketEvents } from '@/contracts';
-import { tableRepository } from './repository';
+import { CreateTableSchema, UpdateTableSchema, Role } from '@/contracts';
+import { tableService } from './service';
 
 export const tablesRouter = Router();
 
@@ -12,7 +11,7 @@ tablesRouter.use(authenticate);
 // All authenticated users can list tables
 tablesRouter.get('/', async (req, res, next) => {
   try {
-    const tablesList = await tableRepository.findAll();
+    const tablesList = await tableService.getAllTables();
     res.json({ tables: tablesList });
   } catch (err) {
     next(err);
@@ -22,8 +21,8 @@ tablesRouter.get('/', async (req, res, next) => {
 // Admin only routes
 tablesRouter.post('/', requireRole([Role.ADMIN]), validate(CreateTableSchema), async (req, res, next) => {
   try {
-    const table = await tableRepository.create(req.body);
-    req.app.get('io')?.emit(SocketEvents.TABLE_UPDATED, { table });
+    const io = req.app.get('io');
+    const table = await tableService.createTable(req.body, io);
     res.json({ table });
   } catch (err) {
     next(err);
@@ -32,11 +31,8 @@ tablesRouter.post('/', requireRole([Role.ADMIN]), validate(CreateTableSchema), a
 
 tablesRouter.patch('/:id', requireRole([Role.ADMIN]), validate(UpdateTableSchema), async (req, res, next) => {
   try {
-    const table = await tableRepository.update(req.params.id as string, req.body);
-    if (!table) {
-      throw new AppError('NOT_FOUND', 404, 'Table not found');
-    }
-    req.app.get('io')?.emit(SocketEvents.TABLE_UPDATED, { table });
+    const io = req.app.get('io');
+    const table = await tableService.updateTable(req.params.id as string, req.body, io);
     res.json({ table });
   } catch (err) {
     next(err);
@@ -45,8 +41,8 @@ tablesRouter.patch('/:id', requireRole([Role.ADMIN]), validate(UpdateTableSchema
 
 tablesRouter.delete('/:id', requireRole([Role.ADMIN]), async (req, res, next) => {
   try {
-    await tableRepository.delete(req.params.id as string);
-    req.app.get('io')?.emit(SocketEvents.TABLE_UPDATED, { deletedId: req.params.id });
+    const io = req.app.get('io');
+    await tableService.deleteTable(req.params.id as string, io);
     res.json({ success: true });
   } catch (err) {
     next(err);

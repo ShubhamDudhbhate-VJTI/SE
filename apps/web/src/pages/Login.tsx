@@ -3,12 +3,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginSchema, LoginInput } from '@/contracts';
 import { useAuth } from '../hooks/useAuth';
-import { useSearchParams, Link, Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { getDefaultRedirectPath } from '../utils/authRedirect';
 
 export default function Login() {
   const { login, user } = useAuth();
-  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginInput>({
@@ -16,7 +15,7 @@ export default function Login() {
   });
 
   if (user) {
-    return <Navigate to={getDefaultRedirectPath(user.role, searchParams)} replace />;
+    return <Navigate to={getDefaultRedirectPath(user.role)} replace />;
   }
 
   const onSubmit = async (data: LoginInput) => {
@@ -86,7 +85,7 @@ export default function Login() {
 
           <div className="mt-10 pt-8 border-t border-[#d9cbbd] text-sm text-[#756b63]">
             New to RMS?
-            <Link to={`/signup${searchParams.toString() ? `?${searchParams.toString()}` : ''}`} className="ml-2 text-[#356b4f] hover:underline font-semibold">
+            <Link to="/signup" className="ml-2 text-[#356b4f] hover:underline font-semibold">
               Create an account
             </Link>
           </div>

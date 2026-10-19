@@ -3,12 +3,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { SignupSchema, SignupInput } from '@/contracts';
 import { useAuth } from '../hooks/useAuth';
-import { useSearchParams, Link, Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { getDefaultRedirectPath } from '../utils/authRedirect';
 
 export default function Signup() {
   const { signup, user } = useAuth();
-  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupInput>({
@@ -16,7 +15,7 @@ export default function Signup() {
   });
 
   if (user) {
-    return <Navigate to={getDefaultRedirectPath(user.role, searchParams)} replace />;
+    return <Navigate to={getDefaultRedirectPath(user.role)} replace />;
   }
 
   const onSubmit = async (data: SignupInput) => {
@@ -97,7 +96,7 @@ export default function Signup() {
 
           <div className="mt-10 pt-8 border-t border-[#d9cbbd] text-sm text-[#756b63]">
             Already have an account? 
-            <Link to={`/login${searchParams.toString() ? `?${searchParams.toString()}` : ''}`} className="ml-2 text-[#356b4f] hover:underline font-semibold">
+            <Link to="/login" className="ml-2 text-[#356b4f] hover:underline font-semibold">
               Sign in
             </Link>
           </div>

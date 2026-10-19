@@ -1,6 +1,6 @@
 import { db } from '../../db/client';
-import { orders, orderItems, menuItems, sessions, tables } from '../../db/schema';
-import { eq, inArray, and } from 'drizzle-orm';
+import { orders, orderItems, menuItems, sessions, tables, menuItemIngredients, inventory } from '../../db/schema';
+import { eq, inArray, and, sql } from 'drizzle-orm';
 import { OrderStatus, SessionStatus, type CreateOrderInput, type OrderWithItems } from '@/contracts';
 
 export const orderRepository = {
@@ -11,8 +11,8 @@ export const orderRepository = {
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
     return {
       ...order,
-      createdAt: order.createdAt.getTime(),
-      updatedAt: order.updatedAt.getTime(),
+      createdAt: order.createdAt instanceof Date ? order.createdAt.getTime() : new Date(order.createdAt).getTime(),
+      updatedAt: order.updatedAt instanceof Date ? order.updatedAt.getTime() : new Date(order.updatedAt).getTime(),
       items
     } as OrderWithItems;
   },
@@ -27,8 +27,8 @@ export const orderRepository = {
     
     return sessionOrders.map(o => ({
       ...o,
-      createdAt: o.createdAt.getTime(),
-      updatedAt: o.updatedAt.getTime(),
+      createdAt: o.createdAt instanceof Date ? o.createdAt.getTime() : new Date(o.createdAt).getTime(),
+      updatedAt: o.updatedAt instanceof Date ? o.updatedAt.getTime() : new Date(o.updatedAt).getTime(),
       items: allItems.filter(i => i.orderId === o.id)
     })) as OrderWithItems[];
   },
@@ -52,8 +52,8 @@ export const orderRepository = {
 
     return customerOrders.map(row => ({
       ...row.order,
-      createdAt: row.order.createdAt.getTime(),
-      updatedAt: row.order.updatedAt.getTime(),
+      createdAt: row.order.createdAt instanceof Date ? row.order.createdAt.getTime() : new Date(row.order.createdAt).getTime(),
+      updatedAt: row.order.updatedAt instanceof Date ? row.order.updatedAt.getTime() : new Date(row.order.updatedAt).getTime(),
       tableName: row.table.name,
       items: allItems.filter(i => i.orderId === row.order.id)
     })) as OrderWithItems[];
@@ -88,6 +88,32 @@ export const orderRepository = {
 
       const insertedItems = await tx.insert(orderItems).values(itemsToInsert).returning();
 
+      // Inventory adjustment logic
+      for (const item of input.items) {
+        const ingredients = await tx.select().from(menuItemIngredients)
+          .where(eq(menuItemIngredients.menuItemId, item.menuItemId));
+
+        for (const ingredient of ingredients) {
+          const totalNeeded = ingredient.quantityNeeded * item.quantity;
+
+          // Check stock
+          const [stock] = await tx.select().from(inventory)
+            .where(eq(inventory.id, ingredient.inventoryId));
+
+          if (!stock || stock.quantity < totalNeeded) {
+            throw new Error(`INSUFFICIENT_STOCK:${stock?.name || 'Unknown Ingredient'}`);
+          }
+
+          // Decrement stock
+          await tx.update(inventory)
+            .set({
+              quantity: sql`${inventory.quantity} - ${totalNeeded}`,
+              updatedAt: new Date()
+            })
+            .where(eq(inventory.id, ingredient.inventoryId));
+        }
+      }
+
       return {
         ...newOrder,
         createdAt: newOrder.createdAt.getTime(),
@@ -97,12 +123,42 @@ export const orderRepository = {
     });
   },
 
-  async cancelOrder(orderId: string) {
-    const [order] = await db.update(orders)
-      .set({ status: OrderStatus.CANCELLED, updatedAt: new Date() })
-      .where(eq(orders.id, orderId))
-      .returning();
-    return order;
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<OrderWithItems | null> {
+    return db.transaction(async (tx) => {
+      const [order] = await tx.update(orders)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(orders.id, orderId))
+        .returning();
+
+      if (!order) return null;
+
+      const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+
+      if (status === OrderStatus.CANCELLED) {
+        // Restore inventory
+        for (const item of items) {
+          const ingredients = await tx.select().from(menuItemIngredients)
+            .where(eq(menuItemIngredients.menuItemId, item.menuItemId));
+
+          for (const ingredient of ingredients) {
+            const totalToRestore = ingredient.quantityNeeded * item.quantity;
+            await tx.update(inventory)
+              .set({
+                quantity: sql`${inventory.quantity} + ${totalToRestore}`,
+                updatedAt: new Date()
+              })
+              .where(eq(inventory.id, ingredient.inventoryId));
+          }
+        }
+      }
+
+      return {
+        ...order,
+        createdAt: order.createdAt instanceof Date ? order.createdAt.getTime() : new Date(order.createdAt).getTime(),
+        updatedAt: order.updatedAt instanceof Date ? order.updatedAt.getTime() : new Date(order.updatedAt).getTime(),
+        items
+      } as OrderWithItems;
+    });
   },
 
   async getActiveOrders(): Promise<OrderWithItems[]> {
@@ -130,19 +186,13 @@ export const orderRepository = {
     return activeOrders.map(row => {
       return {
         ...row.order,
-        createdAt: row.order.createdAt.getTime(),
-        updatedAt: row.order.updatedAt.getTime(),
+        createdAt: row.order.createdAt instanceof Date ? row.order.createdAt.getTime() : new Date(row.order.createdAt).getTime(),
+        updatedAt: row.order.updatedAt instanceof Date ? row.order.updatedAt.getTime() : new Date(row.order.updatedAt).getTime(),
         tableName: row.table.name,
         items: items.filter(i => i.orderId === row.order.id)
       };
     }) as OrderWithItems[];
   },
 
-  async updateOrderStatus(orderId: string, status: OrderStatus) {
-    const [order] = await db.update(orders)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(orders.id, orderId))
-      .returning();
-    return order;
-  }
+  // The updateOrderStatus implementation is moved above to replace the redundant cancelOrder
 };

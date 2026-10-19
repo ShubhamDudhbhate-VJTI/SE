@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -131,10 +131,7 @@ function InteractiveDemo() {
 
 export default function Landing() {
   const pageRef = useRef<HTMLDivElement>(null);
-  const [searchParams] = useSearchParams();
   const { user, isLoading: isAuthLoading, logout, isLoggingOut } = useAuth();
-  const next = searchParams.get('next');
-  const authQuery = next ? `?next=${encodeURIComponent(next)}` : '';
 
   useEffect(() => {
     if (!pageRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -188,12 +185,18 @@ export default function Landing() {
         </nav>
         <div className="landing-nav-actions">
           {!isAuthLoading && !user && (
-            <Link to={`/login${authQuery}`} className="nav-login">Log in</Link>
+            <Link to="/login" className="nav-login">Log in</Link>
           )}
           {!isAuthLoading && user && (
             <button
               type="button"
-              onClick={() => logout()}
+              onClick={async () => {
+                try {
+                  await logout();
+                } catch (err) {
+                  console.error('Logout failed', err);
+                }
+              }}
               disabled={isLoggingOut}
               className="nav-login inline-flex items-center gap-2 disabled:opacity-50"
             >
@@ -201,7 +204,7 @@ export default function Landing() {
               {isLoggingOut ? 'Logging out...' : 'Log out'}
             </button>
           )}
-          <Link to={user ? '/tables' : `/signup${authQuery}`} className="nav-cta">Open the system <ArrowUpRightIcon /></Link>
+          <Link to={user ? '/tables' : '/signup'} className="nav-cta">Open the system <ArrowUpRightIcon /></Link>
         </div>
       </header>
 
@@ -216,7 +219,7 @@ export default function Landing() {
             </h1>
             <p className="hero-copy">From the first scan to the final bill, RMS keeps the whole dining room moving as one.</p>
             <div className="hero-actions">
-              <Link to={`/signup${authQuery}`} className="button button-primary">Explore RMS <ArrowDownRight size={17} /></Link>
+              <Link to="/signup" className="button button-primary">Explore RMS <ArrowDownRight size={17} /></Link>
               <a href="#product" className="button button-secondary">See the workflow</a>
             </div>
           </div>
@@ -253,7 +256,7 @@ export default function Landing() {
               <span className="section-kicker">02 / The handoff</span>
               <h2>A QR code is<br /><em>the first hello.</em></h2>
               <p>Each table has a real route into the menu. No table selection after the scan. No lost context.</p>
-              <Link to={`/signup${authQuery}`} className="text-button">Try the customer flow <ArrowRight size={16} /></Link>
+              <Link to="/signup" className="text-button">Try the customer flow <ArrowRight size={16} /></Link>
             </div>
             <div className="qr-card">
               <QrCode size={108} strokeWidth={1.1} />
@@ -288,7 +291,7 @@ export default function Landing() {
           <span className="section-kicker">Keep the room moving</span>
           <h2>One table.<br /><em>One connected experience.</em></h2>
           <p>Give every role the context they need, exactly when they need it.</p>
-          <Link to={user ? '/tables' : `/signup${authQuery}`} className="button button-primary">Open the system <ArrowRight size={17} /></Link>
+          <Link to={user ? '/tables' : '/signup'} className="button button-primary">Open the system <ArrowRight size={17} /></Link>
         </section>
       </main>
 
@@ -298,7 +301,7 @@ export default function Landing() {
         <div className="footer-links">
           <a href="#product">Product</a>
           <a href="#workflow">How it works</a>
-          {!isAuthLoading && !user && <Link to={`/login${authQuery}`}>Log in</Link>}
+          {!isAuthLoading && !user && <Link to="/login">Log in</Link>}
         </div>
         <span className="footer-copy">Built for a clearer service.</span>
       </footer>

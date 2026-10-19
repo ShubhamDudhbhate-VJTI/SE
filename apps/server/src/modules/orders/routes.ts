@@ -23,6 +23,13 @@ ordersRouter.post('/me/pay', async (req, res, next) => {
       throw new AppError('FORBIDDEN', 403, 'NO_ACTIVE_SESSION');
     }
 
+    // Security check: Ensure no orders are in 'PLACED' status
+    const orders = await orderRepository.getOrdersBySession(activeSession.id);
+    const hasPlacedOrders = orders.some(o => o.status === OrderStatus.PLACED);
+    if (hasPlacedOrders) {
+      throw new AppError('CONFLICT', 409, 'Cannot pay while orders are still awaiting kitchen confirmation');
+    }
+
     const data = PaySessionSchema.parse(req.body);
 
     // Use PaymentService to handle the workflow
@@ -61,7 +68,13 @@ ordersRouter.post('/', async (req, res, next) => {
       res.status(201).json({ order });
     } catch (e: any) {
       if (e.message.startsWith('ITEM_UNAVAILABLE')) {
-        throw new AppError('CONFLICT', 409, 'ITEM_UNAVAILABLE');
+        throw new AppError('CONFLICT', 409, e.message);
+      }
+      if (e.message.startsWith('INSUFFICIENT_STOCK')) {
+        throw new AppError('CONFLICT', 409, e.message);
+      }
+      if (e.message.startsWith('ITEM_NOT_FOUND')) {
+        throw new AppError('NOT_FOUND', 404, e.message);
       }
       throw e;
     }
@@ -114,7 +127,11 @@ ordersRouter.get('/history', async (req, res, next) => {
 ordersRouter.post('/:id/cancel', async (req, res, next) => {
   try {
     const updated = await orderService.cancelOrder(req.user!.userId, req.user!.role, req.params.id);
-    req.app.get('io')?.emit(SocketEvents.ORDER_STATUS_CHANGED, { orderId: updated.id, status: updated.status });
+    req.app.get('io')?.emit(SocketEvents.ORDER_STATUS_CHANGED, {
+      orderId: updated.id,
+      status: updated.status,
+      actorRole: req.user!.role
+    });
     res.json({ order: updated });
   } catch (err) {
     next(err);
@@ -136,7 +153,11 @@ ordersRouter.patch('/:id/status', requireRole([Role.KITCHEN, Role.ADMIN, Role.WA
   try {
     const data = UpdateOrderStatusSchema.parse(req.body);
     const updated = await orderService.updateStatus(req.user!.userId, req.user!.role, req.params.id as string, data.status);
-    req.app.get('io')?.emit(SocketEvents.ORDER_STATUS_CHANGED, { orderId: updated.id, status: updated.status });
+    req.app.get('io')?.emit(SocketEvents.ORDER_STATUS_CHANGED, {
+      orderId: updated.id,
+      status: updated.status,
+      actorRole: req.user!.role
+    });
     res.json({ order: updated });
   } catch (err) {
     next(err);

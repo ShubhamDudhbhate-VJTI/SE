@@ -9,7 +9,8 @@ import {
   SessionCloseReason,
   PaymentMethod,
   TableStatus,
-  Role
+  Role,
+  OrderStatus
 } from '@/contracts';
 
 export class SessionService {
@@ -61,6 +62,13 @@ export class SessionService {
       throw new AppError('NOT_FOUND', 404, 'No active session found for this request');
     }
 
+    // Security check: Ensure no orders are in 'PLACED' status
+    const orders = await orderRepository.getOrdersBySession(session.id);
+    const hasPlacedOrders = orders.some(o => o.status === OrderStatus.PLACED);
+    if (hasPlacedOrders) {
+      throw new AppError('CONFLICT', 409, 'Cannot request bill while orders are still awaiting kitchen confirmation');
+    }
+
     const table = await tableRepository.updateStatus(session.tableId, TableStatus.BILLING);
     return { session, table };
   }
@@ -75,6 +83,14 @@ export class SessionService {
     const session = await sessionRepository.getById(sessionId);
     if (!session || session.status !== SessionStatus.ACTIVE) {
       throw new AppError('NOT_FOUND', 404, 'Active session not found');
+    }
+
+    if (closeReason === SessionCloseReason.PAID) {
+      const orders = await orderRepository.getOrdersBySession(session.id);
+      const hasPlacedOrders = orders.some(o => o.status === OrderStatus.PLACED);
+      if (hasPlacedOrders) {
+        throw new AppError('CONFLICT', 409, 'Cannot close session while orders are still awaiting kitchen confirmation');
+      }
     }
 
     const bill = await computeBill(session.id, paymentMethod ? discountPercent : 0);

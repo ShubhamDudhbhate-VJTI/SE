@@ -4,19 +4,28 @@ import type { OrderWithItems, OrderStatus } from '@/contracts';
 import { useEffect } from 'react';
 import { socket } from '../lib/socket';
 import { SocketEvents } from '@/contracts';
+import { useAuth } from './useAuth';
 
 export function useKitchenOrders() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const ordersQuery = useQuery<OrderWithItems[]>({
     queryKey: ['orders', 'active'],
     queryFn: async () => {
       const res = await apiClient.get<{ orders: OrderWithItems[] }>('/orders');
       return res.data.orders;
-    }
+    },
+    refetchInterval: 30000, // Fallback polling
   });
 
   useEffect(() => {
+    if (!user) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
     const handleUpdate = () => {
       queryClient.invalidateQueries({ queryKey: ['orders', 'active'] });
     };
